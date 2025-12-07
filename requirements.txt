@@ -1,0 +1,2 @@
+# Install Playwright browser binaries with: playwright install chromium
+playwright>=1.40.0,<1.50.0

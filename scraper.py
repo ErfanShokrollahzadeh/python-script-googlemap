@@ -78,6 +78,7 @@ async def robust_goto(page, url: str, max_retries: int = 2, timeout: int = 30000
 
 
 async def search_google_maps(page, city: str) -> bool:
+    print(f"Searching for 'Dentist in {city}'...")
     ok = await robust_goto(page, SEARCH_URL, max_retries=2, timeout=30000)
     if not ok:
         return False
@@ -88,6 +89,7 @@ async def search_google_maps(page, city: str) -> bool:
         await search_input.fill(f"Dentist in {city}")
         await page.locator("button#searchbox-searchbutton").click()
         await page.wait_for_selector("div[role='feed']", state="visible", timeout=15000)
+        print("Search complete, loading results...")
         return True
     except Exception:
         return False
@@ -100,22 +102,28 @@ async def scroll_results(page) -> int:
     previous_count = 0
     stale_scrolls = 0
     start_time = time.time()
+    print("Scrolling to load all results...")
 
     while True:
         current_count = await page.locator("div[role='article']").count()
         if current_count >= MAX_RESULTS_CAP:
+            print(f"Reached maximum cap of {MAX_RESULTS_CAP} results.")
             break
 
         if current_count == previous_count:
             stale_scrolls += 1
         else:
             stale_scrolls = 0
+            if current_count % 10 == 0:  # Print every 10 results
+                print(f"Loaded {current_count} results...")
         previous_count = current_count
 
         if stale_scrolls >= STALE_SCROLL_LIMIT:
+            print(f"No new results found. Total loaded: {current_count}")
             break
 
         if time.time() - start_time > SCROLL_TIMEOUT_SECONDS:
+            print(f"Scroll timeout reached. Total loaded: {current_count}")
             break
 
         await feed.evaluate("el => el.scrollTo(0, el.scrollHeight)")
@@ -220,6 +228,7 @@ async def extract_all_businesses(page) -> list[dict]:
     data: list[dict] = []
     cards = page.locator("div[role='article']")
     total = await cards.count()
+    print(f"\nExtracting details from {total} businesses...")
 
     for idx in range(total):
         card = cards.nth(idx)
@@ -245,6 +254,10 @@ async def extract_all_businesses(page) -> list[dict]:
 
             business = await extract_business_from_detail(page, fallback_name)
             data.append(business)
+
+            # Progress indicator every 10 businesses
+            if (idx + 1) % 10 == 0 or (idx + 1) == total:
+                print(f"Extracted {idx + 1}/{total} businesses...")
         except Exception:
             # Skip problematic cards and continue
             continue
@@ -268,6 +281,8 @@ def save_to_csv(rows: list[dict], filepath: Path) -> None:
 
 
 async def run(city: str) -> int:
+    print("Starting Google Maps scraper...")
+    print("Launching browser...")
     ua = random.choice(USER_AGENTS)
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
@@ -297,8 +312,10 @@ async def run(city: str) -> int:
         await scroll_results(page)
         rows = await extract_all_businesses(page)
 
+        print(f"\nSaving to leads.csv...")
         save_to_csv(rows, Path("leads.csv"))
-        print(f"Scraped {len(rows)} rows.")
+        print(f"✓ Successfully scraped {len(rows)} businesses!")
+        print(f"✓ Data saved to leads.csv")
 
         await context.close()
         await browser.close()
